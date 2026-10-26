@@ -108,3 +108,45 @@ def redact(g: dict, texts: list[str]) -> dict:
                                                           "CLIPTextEncode"))):
                 n["inputs"][k] = "<prompt>"
     return out
+
+
+IMAGE_LOADERS = {"LoadImage", "LoadImageMask", "LoadImageOutput"}
+ENCODERS = ("VAEEncode", "InpaintModelConditioning", "ReferenceLatent")
+
+
+def input_images(g: dict) -> list[tuple[str, str]]:
+    """[(image name, relation)] for every image loader feeding the graph.
+
+    An image that reaches a VAE encoder (img2img, inpaint, Kontext) is the
+    `input`; any other loaded image (IPAdapter, PuLID, ControlNet hint) is a
+    `reference` (REQ-0071). Masks are not artifacts and are skipped.
+    """
+    loaders = {k: n for k, n in g.items() if n.get("class_type") in IMAGE_LOADERS
+               and n.get("class_type") != "LoadImageMask"
+               and isinstance(n.get("inputs", {}).get("image"), str)}
+    encoded = set()
+    for k, n in g.items():
+        if n.get("class_type", "").startswith(ENCODERS):
+            for nid, _ in _walk(g, k, ()):
+                if nid in loaders:
+                    encoded.add(nid)
+    out = []
+    for k in sorted(loaders, key=str):
+        name = loaders[k]["inputs"]["image"]
+        rel = "input" if k in encoded else "reference"
+        if (name, rel) not in out:
+            out.append((name, rel))
+    return out
+
+
+def generation_kind(g: dict) -> str:
+    """created | edited | derived (REQ-0030) from the graph's shape."""
+    rels = {r for _, r in input_images(g)}
+    if "input" not in rels:
+        return "created"
+    for n in g.values():
+        ins = n.get("inputs", {})
+        if "Inpaint" in n.get("class_type", "") or _is_link(ins.get("mask")) or \
+                _is_link(ins.get("noise_mask")):
+            return "edited"
+    return "derived"

@@ -16,7 +16,7 @@ import folder_paths
 
 from ailineage import embed
 from ailineage.canon import params_hash
-from ailineage.digest import digest
+from ailineage.digest import artifact_urn, digest
 from ailineage.jcs import canonicalize
 from ailineage.keys import generate_signer, load_signer
 from ailineage.manifest import Producer, prompt_commitment
@@ -96,8 +96,9 @@ class AILineageSaveImage:
                                "salt are kept locally. public: the prompt text is in the manifest."}),
             },
             "optional": {
-                "prompt_text": ("STRING", {"forceInput": True, "tooltip":
-                                           "Overrides the prompt found in the graph"}),
+                "prompt_text": ("STRING", {"default": "", "tooltip":
+                                           "The user's prompt; empty = take the positive "
+                                           "prompt found in the graph"}),
                 "model_id": ("STRING", {"default": "", "tooltip": "<provider>/<model>; "
                                         "empty = derive from the loader node"}),
                 "model_provider": ("STRING", {"default": ""}),
@@ -134,6 +135,10 @@ class AILineageSaveImage:
         prod = Producer(signer(), TSA_URL, actor={"principal": PRINCIPAL, "role": "operator",
                                                   "pseudonymous": False})
         ext = {EXT: {"loras": loras}} if loras else None
+        kind = graph.generation_kind(g)
+        parents = self._parents(g)
+        if kind != "created" and not any(p["relation"] == "input" for p in parents):
+            kind = "created"  # input image not readable: do not claim an edit without a parent
         h, w = images[0].shape[0], images[0].shape[1]
         full_dir, fname, counter, subfolder, _ = folder_paths.get_save_image_path(
             filename_prefix, self.output_dir, w, h)
@@ -154,8 +159,8 @@ class AILineageSaveImage:
                 log.error("AILineage: no prompt found in the graph; saving %s unsigned", name)
             else:
                 pr, opening = prompt_commitment(text, storage=prompt_storage)
-                kw = dict(media_type="image/" + format, kind="created", model=model, prompt=pr,
-                          runtime=runtime)
+                kw = dict(media_type="image/" + format, kind=kind, model=model, prompt=pr,
+                          runtime=runtime, parents=parents)
                 if ext:
                     kw["extensions"] = ext
                 signed = _sign_with_retry(prod, data, kw)
@@ -171,6 +176,22 @@ class AILineageSaveImage:
             results.append({"filename": name, "subfolder": subfolder, "type": "output"})
             counter += 1
         return {"ui": {"images": results}, "result": ("\n".join(ids),)}
+
+    @staticmethod
+    def _parents(g) -> list:
+        """Content ids of the loaded input/reference images (REQ-0070, REQ-0071)."""
+        out = []
+        for name, rel in graph.input_images(g):
+            try:
+                path = folder_paths.get_annotated_filepath(name)
+                with open(path, "rb") as f:
+                    pid = artifact_urn(embed.hashable_bytes(f.read()))
+            except (OSError, ValueError) as e:
+                log.warning("AILineage: input image %s not hashed: %s", name, e)
+                continue
+            if all((p["id"], p["relation"]) != (pid, rel) for p in out):
+                out.append({"id": pid, "relation": rel})
+        return out
 
     @staticmethod
     def _model(g, model_id, model_provider, hash_weights):

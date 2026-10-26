@@ -80,6 +80,11 @@ def node(tmp_path, monkeypatch):
         os.makedirs(out, exist_ok=True)
         return out, prefix, 1, "", prefix
     fp.get_save_image_path = save_path
+    inputs = tmp_path / "input"
+    inputs.mkdir()
+    (inputs / "photo.png").write_bytes((SPEC / "fixtures" / "data" / "image-64.png").read_bytes())
+    (inputs / "face.png").write_bytes((SPEC / "fixtures" / "data" / "image-64-inpaint.png").read_bytes())
+    fp.get_annotated_filepath = lambda name: str(inputs / name)
     monkeypatch.setitem(sys.modules, "folder_paths", fp)
     monkeypatch.setenv("AILINEAGE_KEY", str(tmp_path / "cfg" / "key.pem"))
     monkeypatch.setenv("AILINEAGE_OPENINGS_DIR", str(tmp_path / "openings"))
@@ -115,6 +120,31 @@ def test_graph_facts():
     assert seed == 7 and params["cfg"] == 7.0
     red = json.dumps(g.redact(KSAMPLER, ["a castle on a hill"]))
     assert "castle" not in red and "blurry" not in red
+
+
+IMG2IMG = {
+    "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"}},
+    "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "manga style", "clip": ["1", 1]}},
+    "3": {"class_type": "LoadImage", "inputs": {"image": "photo.png", "upload": "image"}},
+    "4": {"class_type": "VAEEncode", "inputs": {"pixels": ["3", 0], "vae": ["1", 2]}},
+    "5": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 20, "cfg": 6.0, "sampler_name": "euler",
+                                               "scheduler": "normal", "denoise": 0.6, "model": ["1", 0],
+                                               "positive": ["2", 0], "negative": ["2", 0],
+                                               "latent_image": ["4", 0]}},
+    "6": {"class_type": "LoadImage", "inputs": {"image": "face.png", "upload": "image"}},
+    "7": {"class_type": "IPAdapterAdvanced", "inputs": {"image": ["6", 0], "model": ["1", 0]}},
+}
+
+
+def test_kind_and_inputs():
+    g = _graph()
+    assert g.generation_kind(FLUX) == "created" and g.input_images(FLUX) == []
+    assert g.input_images(IMG2IMG) == [("photo.png", "input"), ("face.png", "reference")]
+    assert g.generation_kind(IMG2IMG) == "derived"
+    inpaint = json.loads(json.dumps(IMG2IMG))
+    inpaint["8"] = {"class_type": "LoadImageMask", "inputs": {"image": "m.png", "channel": "alpha"}}
+    inpaint["9"] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": ["4", 0], "mask": ["8", 0]}}
+    assert g.generation_kind(inpaint) == "edited"
 
 
 class FakeTensor:
@@ -160,3 +190,27 @@ def test_save_sign_verify(node, fmt):
         assert o["text"] == "a red fox, watercolor"
         assert verify_opening(m["prompt"]["hash"], o["canonicalization"], o["text"], o["salt"])
     assert oct(os.stat(tmp / "cfg" / "key.pem").st_mode & 0o777) == "0o600"
+
+
+@pytest.mark.skipif(os.environ.get("AILINEAGE_OFFLINE") == "1", reason="needs freetsa.org")
+def test_img2img_parents(node):
+    nodes, tmp = node
+    from ailineage.digest import artifact_urn
+    from ailineage.tsa import load_roots
+    from ailineage.verify import TrustPolicy, verify
+    img = [FakeTensor(np.zeros((64, 64, 3), dtype=np.float32))]
+    res = nodes.AILineageSaveImage().save(img, "i2i", "png", 90, "none",
+                                          prompt_text="make it manga", prompt=IMG2IMG)
+    b = (tmp / "out" / res["ui"]["images"][0]["filename"]).read_bytes()
+    policy = TrustPolicy("t", {nodes.signer().did},
+                         load_roots([SPEC / "fixtures" / "keys" / "freetsa-cacert.pem"]))
+    r = verify(b, policy)
+    assert r.state == "PROVENANCED", r.detail
+    m = r.manifest
+    assert m["generation"]["kind"] == "derived"
+    d = SPEC / "fixtures" / "data"
+    assert m["parents"] == [
+        {"id": artifact_urn((d / "image-64.png").read_bytes()), "relation": "input"},
+        {"id": artifact_urn((d / "image-64-inpaint.png").read_bytes()), "relation": "reference"}]
+    from ailineage import openings
+    assert openings.load(m["artifact"]["id"])["openings"]["prompt"]["text"] == "make it manga"
