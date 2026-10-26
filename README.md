@@ -12,7 +12,7 @@ Chain mode (Verifier step 12), `did:web`, Registry and escrow are not implemente
 
 ## Tests
 
-Golden tests run every case of the spec's `fixtures/index.json`. The spec repository is expected next to this one (`../spec`), or set `SPEC=`.
+Golden tests run every case of the spec's `fixtures/index.json`. The spec is the `spec` git submodule (`git clone --recursive`); without it the Makefile falls back to `../spec`, or set `SPEC=`.
 
 ```sh
 make venv

@@ -1,5 +1,5 @@
-# AILineage monorepo. The spec repository is expected at ../spec (or set SPEC).
-SPEC   ?= $(abspath ../spec)
+# AILineage monorepo. The spec is the `spec` submodule, else ../spec (or set SPEC).
+SPEC   ?= $(if $(wildcard spec/fixtures/index.json),$(abspath spec),$(abspath ../spec))
 PYTHON ?= .venv/bin/python
 
 .PHONY: venv test test-offline schema-check sync-schema
