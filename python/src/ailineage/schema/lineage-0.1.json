@@ -1,0 +1,370 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ailineage.org/schema/lineage-0.1.json",
+  "title": "AILineage manifest 0.1",
+  "description": "Normative JSON Schema for AILineage manifests, version 0.1. Field semantics are defined in SPEC.md section 4; REQ identifiers are noted in each 'description'. Rules that JSON Schema cannot express (e.g. REQ-0072 parent self-reference) are verifier checks, see SPEC.md section 9.",
+  "type": "object",
+  "additionalProperties": false,
+  "patternProperties": {
+    "^_[a-z0-9_]+$": {
+      "description": "REQ-0005: annotation member. Test fixtures only; Producers MUST NOT emit annotation members in production manifests."
+    }
+  },
+  "required": ["spec", "artifact", "generation", "prompt", "parents", "actor", "flags", "signature"],
+  "properties": {
+    "spec": {
+      "description": "REQ-0010: specification identifier.",
+      "const": "ailineage/0.1"
+    },
+    "artifact": { "$ref": "#/$defs/artifact" },
+    "generation": { "$ref": "#/$defs/generation" },
+    "prompt": { "$ref": "#/$defs/prompt" },
+    "parents": {
+      "description": "REQ-0070: direct ancestors of the artifact. MAY be empty.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/parent" }
+    },
+    "actor": { "$ref": "#/$defs/actor" },
+    "flags": {
+      "description": "REQ-0090: Producer-declared flags. MAY be empty. Verifiers MUST NOT enforce them (REQ-0093).",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "deepfake-candidate",
+          "public-interest-text",
+          "minor-depicted-declared",
+          "synthetic-voice",
+          "training-opt-out"
+        ]
+      }
+    },
+    "jurisdiction": { "$ref": "#/$defs/jurisdiction" },
+    "extensions": {
+      "description": "REQ-0110: namespaced extension members. Keys MUST be reverse-DNS namespaced, e.g. 'org.example.foo'.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$"
+      }
+    },
+    "signature": { "$ref": "#/$defs/signature" }
+  },
+  "allOf": [
+    {
+      "description": "REQ-0073: kind=edited|derived requires at least one parent.",
+      "if": {
+        "properties": { "generation": { "properties": { "kind": { "enum": ["edited", "derived"] } }, "required": ["kind"] } },
+        "required": ["generation"]
+      },
+      "then": {
+        "properties": { "parents": { "minItems": 1 } }
+      }
+    },
+    {
+      "description": "REQ-0074: kind=created forbids relation=previous_version.",
+      "if": {
+        "properties": { "generation": { "properties": { "kind": { "const": "created" } }, "required": ["kind"] } },
+        "required": ["generation"]
+      },
+      "then": {
+        "properties": {
+          "parents": {
+            "items": {
+              "properties": { "relation": { "not": { "const": "previous_version" } } }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "hash": { "$ref": "defs/hash.json" },
+    "urn": { "$ref": "defs/urn-artifact.json" },
+    "did": { "$ref": "defs/did.json" },
+    "timestamp": { "$ref": "defs/rfc3339.json" },
+    "httpsUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^\\s]+$"
+    },
+    "registryUrn": {
+      "description": "REQ-0076: 'urn:ailineage:registry:<host>:<64 hex>' resolving to https://<host>/v0/manifests/urn:sha256:<64 hex>.",
+      "type": "string",
+      "pattern": "^urn:ailineage:registry:[a-z0-9.-]+:[0-9a-f]{64}$"
+    },
+    "escrowUrn": {
+      "description": "REQ-0044: 'urn:ailineage:escrow:<host>:<id>'.",
+      "type": "string",
+      "pattern": "^urn:ailineage:escrow:[a-z0-9.-]+:[A-Za-z0-9_-]{8,128}$"
+    },
+    "domain": {
+      "type": "string",
+      "pattern": "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "media_type", "created_at"],
+      "properties": {
+        "id": {
+          "description": "REQ-0020: urn:sha256 over the artifact bytes without the embedded manifest (SPEC.md section 5).",
+          "$ref": "#/$defs/urn"
+        },
+        "media_type": {
+          "description": "REQ-0021: RFC 6838 media type of the artifact.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}(;.*)?$"
+        },
+        "created_at": {
+          "description": "REQ-0022: RFC 3339 creation time with offset.",
+          "$ref": "#/$defs/timestamp"
+        },
+        "size_bytes": {
+          "description": "REQ-0023: size of the hashed byte sequence.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "perceptual": {
+          "description": "REQ-0024: perceptual fingerprint for strip-check lookups.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["alg", "value"],
+          "properties": {
+            "alg": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
+            "value": { "type": "string", "pattern": "^[0-9a-f]{2,4096}$" }
+          }
+        }
+      }
+    },
+    "generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "model"],
+      "properties": {
+        "kind": {
+          "description": "REQ-0030: how the artifact came to be.",
+          "enum": ["created", "edited", "derived", "assisted"]
+        },
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "provider"],
+          "properties": {
+            "id": {
+              "description": "REQ-0031: '<provider>/<model>'.",
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            },
+            "version_hash": {
+              "description": "REQ-0032: weights digest or API-reported build id.",
+              "anyOf": [
+                { "$ref": "#/$defs/hash" },
+                { "type": "string", "pattern": "^build:[A-Za-z0-9._:-]{1,128}$" }
+              ]
+            },
+            "provider": {
+              "description": "REQ-0033: provider domain name or DID.",
+              "anyOf": [{ "$ref": "#/$defs/domain" }, { "$ref": "#/$defs/did" }]
+            },
+            "card_ref": {
+              "description": "REQ-0034: URL of the model card.",
+              "$ref": "#/$defs/httpsUrl"
+            }
+          }
+        },
+        "runtime": {
+          "description": "REQ-0035: execution environment.",
+          "type": "object",
+          "additionalProperties": false,
+          "dependentRequired": { "volatile": ["params_hash"] },
+          "properties": {
+            "tool": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "workflow_hash": { "$ref": "#/$defs/hash" },
+            "seed": { "type": "integer", "minimum": 0 },
+            "params_hash": { "$ref": "#/$defs/hash" },
+            "volatile": {
+              "description": "REQ-0039: top-level params keys excluded from params_hash.",
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hash", "canonicalization", "storage", "disclosure_policy", "contains_pii"],
+      "properties": {
+        "hash": {
+          "description": "REQ-0040: commitment to the canonicalized prompt; salted unless storage=public (REQ-0308).",
+          "$ref": "#/$defs/hash"
+        },
+        "canonicalization": {
+          "description": "REQ-0041, REQ-0052: prompt canonicalization identifier (CANONICALIZATION.md). Salted variants are required unless storage=public (ADR-0008).",
+          "enum": ["utf8-nfc-trim-salted-v1", "multimodal-salted-v1", "utf8-nfc-trim-v1", "multimodal-v1"]
+        },
+        "storage": {
+          "description": "REQ-0042: where the prompt plaintext lives.",
+          "enum": ["none", "escrow", "public"]
+        },
+        "escrow_ref": {
+          "description": "REQ-0044: reference to the escrowed ciphertext.",
+          "anyOf": [{ "$ref": "#/$defs/httpsUrl" }, { "$ref": "#/$defs/escrowUrn" }]
+        },
+        "text": {
+          "description": "REQ-0045: prompt plaintext, only when storage=public.",
+          "type": "string"
+        },
+        "disclosure_policy": {
+          "description": "REQ-0047: who may obtain the plaintext.",
+          "enum": ["on-legal-request", "owner", "public", "none"]
+        },
+        "contains_pii": {
+          "description": "REQ-0048: Producer declaration, not a guarantee.",
+          "type": "boolean"
+        },
+        "system_prompt_hash": {
+          "description": "REQ-0049: commitment to the system prompt, same canonicalization as prompt.hash, own salt.",
+          "$ref": "#/$defs/hash"
+        },
+        "context_refs": {
+          "description": "REQ-0050: artifacts injected into the context window.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/urn" }
+        },
+        "turn_index": {
+          "description": "REQ-0051: zero-based position in a conversation.",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "description": "REQ-0043, REQ-0052: storage=escrow requires escrow_ref and a salted canonicalization, and forbids text.",
+          "if": { "properties": { "storage": { "const": "escrow" } }, "required": ["storage"] },
+          "then": {
+            "required": ["escrow_ref"],
+            "not": { "required": ["text"] },
+            "properties": { "canonicalization": { "enum": ["utf8-nfc-trim-salted-v1", "multimodal-salted-v1"] } }
+          }
+        },
+        {
+          "description": "REQ-0045, REQ-0305, REQ-0052: storage=public requires text, disclosure_policy=public and an unsalted canonicalization.",
+          "if": { "properties": { "storage": { "const": "public" } }, "required": ["storage"] },
+          "then": {
+            "required": ["text"],
+            "properties": {
+              "disclosure_policy": { "const": "public" },
+              "canonicalization": { "enum": ["utf8-nfc-trim-v1", "multimodal-v1"] }
+            }
+          }
+        },
+        {
+          "description": "REQ-0046, REQ-0052: storage=none requires a salted canonicalization and forbids escrow_ref and text.",
+          "if": { "properties": { "storage": { "const": "none" } }, "required": ["storage"] },
+          "then": {
+            "properties": { "canonicalization": { "enum": ["utf8-nfc-trim-salted-v1", "multimodal-salted-v1"] } },
+            "allOf": [
+              { "not": { "required": ["escrow_ref"] } },
+              { "not": { "required": ["text"] } }
+            ]
+          }
+        }
+      ]
+    },
+    "parent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "relation"],
+      "properties": {
+        "id": {
+          "description": "REQ-0071: parent artifact identifier.",
+          "$ref": "#/$defs/urn"
+        },
+        "relation": {
+          "description": "REQ-0071: relation of the parent to this artifact.",
+          "enum": ["input", "reference", "previous_version", "template"]
+        },
+        "lineage_ref": {
+          "description": "REQ-0076: where the parent manifest can be fetched.",
+          "anyOf": [{ "$ref": "#/$defs/httpsUrl" }, { "$ref": "#/$defs/registryUrn" }]
+        }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal", "role", "pseudonymous"],
+      "properties": {
+        "principal": {
+          "description": "REQ-0080: accountable principal, DID or https URL.",
+          "anyOf": [{ "$ref": "#/$defs/did" }, { "$ref": "#/$defs/httpsUrl" }]
+        },
+        "role": {
+          "description": "REQ-0081: role of the principal.",
+          "enum": ["operator", "deployer", "end-user", "system"]
+        },
+        "pseudonymous": {
+          "description": "REQ-0082: whether principal is a pseudonym.",
+          "type": "boolean"
+        },
+        "on_behalf_of": {
+          "description": "REQ-0083: DID of the party on whose behalf the principal acted.",
+          "$ref": "#/$defs/did"
+        }
+      }
+    },
+    "jurisdiction": {
+      "description": "REQ-0100: declared jurisdiction context.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "produced_in": { "type": "string", "pattern": "^[A-Z]{2}$" },
+        "regimes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" }
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "kid", "ts", "sig"],
+      "properties": {
+        "alg": {
+          "description": "REQ-0120: signature algorithm.",
+          "enum": ["ES256", "EdDSA"]
+        },
+        "kid": {
+          "description": "REQ-0121: key identifier, DID URL or opaque key id.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "ts": {
+          "description": "REQ-0124: base64 (RFC 4648 section 4) DER RFC 3161 TimeStampToken over SHA-256(sig bytes).",
+          "type": "string",
+          "minLength": 4,
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        },
+        "sig": {
+          "description": "REQ-0122: base64url (no padding) signature over JCS(manifest without 'signature').",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43,}$"
+        },
+        "chain": {
+          "description": "REQ-0127: optional PEM X.509 chain for kid.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^-----BEGIN CERTIFICATE-----"
+          }
+        }
+      }
+    }
+  }
+}

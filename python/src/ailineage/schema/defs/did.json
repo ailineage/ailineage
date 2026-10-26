@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ailineage.org/schema/defs/did.json",
+  "title": "Decentralized Identifier",
+  "description": "A W3C DID (did:<method>:<method-specific-id>), optionally a DID URL with a fragment.",
+  "type": "string",
+  "pattern": "^did:[a-z0-9]+:[A-Za-z0-9._%:-]+(#[A-Za-z0-9._%:-]+)?$"
+}

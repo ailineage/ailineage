@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ailineage.org/schema/defs/urn-artifact.json",
+  "title": "AILineage artifact identifier",
+  "description": "REQ-0200, REQ-0230: 'urn:<alg>:<lowercase hex>' over the artifact bytes with any embedded AILineage manifest removed (SPEC.md section 5). Algorithms come from the same registry as defs/hash.json; 0.1 registers only sha256.",
+  "type": "string",
+  "anyOf": [
+    { "title": "sha256", "pattern": "^urn:sha256:[0-9a-f]{64}$" }
+  ]
+}

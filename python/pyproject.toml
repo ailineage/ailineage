@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ailineage"
+version = "0.1.0.dev0"
+description = "AILineage reference implementation: signed provenance manifests for AI-generated artifacts"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = ["cryptography>=42", "asn1crypto>=1.5", "jsonschema>=4.18", "referencing>=0.30"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+ailineage = "ailineage.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ailineage = ["schema/*.json", "schema/defs/*.json"]

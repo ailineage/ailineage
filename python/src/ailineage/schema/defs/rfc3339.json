@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ailineage.org/schema/defs/rfc3339.json",
+  "title": "RFC 3339 timestamp with explicit offset",
+  "description": "An RFC 3339 date-time. The offset ('Z' or '+hh:mm' / '-hh:mm') is mandatory.",
+  "type": "string",
+  "format": "date-time",
+  "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+}

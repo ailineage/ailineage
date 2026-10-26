@@ -1,0 +1,3 @@
+# The ailineage library; until it is on PyPI install it from the monorepo:
+#   pip install /path/to/ailineage/python
+ailineage>=0.1.0.dev0
